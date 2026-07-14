@@ -37,11 +37,10 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;   /* fills the entire viewport, crops the overflow */
-    object-position: center 40%;
-    /* The source PNG has dead black space above the skull and below the neck.
-       The base zoom in the creep loop pushes that padding off-screen so the
-       head itself bleeds past the top and bottom edges. */
+    /* The square touches the top and bottom of the screen. Its own black
+       background blends into the page, so the sides look like nothing. */
+    object-fit: contain;
+    object-position: center center;
   }
 
   .face-main {
@@ -146,32 +145,16 @@
   }
 
   /* ---------- OPENING FADE : 2 SECONDS ---------- */
-  /* Starts as a solid black gate. The first click starts the audio (browsers
-     only allow playback from inside a real gesture) and fades to the face. */
   #fade-in {
     position: fixed;
     inset: 0;
     background: #000;
     z-index: 9;
     opacity: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
+    pointer-events: none;
     transition: opacity 2s linear;
   }
-  #fade-in.done {
-    opacity: 0;
-    pointer-events: none;
-  }
-  #fade-in span {
-    color: #3d3d3d;
-    font-size: 0.68rem;
-    letter-spacing: 0.55em;
-    text-transform: lowercase;
-    animation: hint-pulse 4s ease-in-out infinite;
-  }
-  #fade-in.done span { opacity: 0; }
+  #fade-in.done { opacity: 0; }
 
   /* whole-screen tracking warp, toggled by JS */
   body.track-warp #face-wrap {
@@ -198,24 +181,6 @@
   }
   #whisper.on { opacity: 0.75; }
 
-  /* only ever shows if the audio genuinely fails — otherwise empty + invisible */
-  #sound-hint {
-    position: fixed;
-    top: 4vh;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
-    color: #6a2020;
-    font-size: 0.62rem;
-    letter-spacing: 0.5em;
-    text-shadow: 0 0 12px #000;
-    opacity: 0;
-    pointer-events: none;
-  }
-  @keyframes hint-pulse {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 0.8; }
-  }
 </style>
 </head>
 <body>
@@ -249,11 +214,10 @@
 <div id="scanlines"></div>
 <div id="vignette"></div>
 <div id="blackout"></div>
-<div id="fade-in"><span>click</span></div>
+<div id="fade-in"></div>
 
-<audio id="music" src="ambience.mp3" loop preload="auto"></audio>
+<audio id="music" src="ambience.mp3" loop preload="auto" autoplay playsinline></audio>
 
-<div id="sound-hint"></div>
 <div id="whisper"></div>
 
 <script>
@@ -263,7 +227,6 @@
   /* ============ BACKGROUND MUSIC ============ */
   // Sped up to 266%, and creeping louder the longer you stay.
   const music = document.getElementById("music");
-  const hint = document.getElementById("sound-hint");
 
   const SPEED = 2.66;          // 266%
   const START_VOL = 0.35;      // present from the first second, but low
@@ -305,29 +268,31 @@
     requestAnimationFrame(rampVolume);
   });
 
-  // If the file itself fails to load, say so instead of failing silently.
-  music.addEventListener("error", function () {
-    hint.textContent = "audio failed to load";
-    hint.style.opacity = "1";
-  });
-
-  /* ============ THE GATE : first click starts sound, then fades in ============ */
-  const gate = document.getElementById("fade-in");
-
-  gate.addEventListener("click", function begin() {
-    gate.removeEventListener("click", begin);
-
-    // play() MUST be called synchronously inside the gesture handler,
-    // before any await/promise, or the autoplay policy rejects it.
+  // No gate, no warning. Slam it on immediately.
+  function attack() {
+    if (musicStarted) return;
     lockRate();
     music.volume = START_VOL;
-    music.play().catch(function () {
-      hint.textContent = "audio blocked";
-      hint.style.opacity = "1";
-    });
-
+    const p = music.play();
+    if (p && p.catch) p.catch(function () { /* browser refused; armed below */ });
     startSfx();
-    gate.classList.add("done");   // 2s fade from black to the face
+  }
+  attack();
+
+  // If the browser's autoplay policy refused, the very first thing the visitor
+  // does — move the mouse, scroll, touch, press a key — sets it off instead.
+  // Silent, invisible, no instructions. They never see it coming either way.
+  ["pointerdown", "pointermove", "mousemove", "mousedown", "keydown",
+   "touchstart", "scroll", "wheel", "focus"].forEach(function (ev) {
+    window.addEventListener(ev, attack, { passive: true });
+  });
+
+  /* ============ OPENING FADE (2s from black) ============ */
+  const gate = document.getElementById("fade-in");
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      gate.classList.add("done");
+    });
   });
 
   /* ============ TV STATIC ============ */
@@ -357,7 +322,7 @@
   // The face gets imperceptibly closer the longer the page is open.
   // It also leans very slightly toward your cursor — it is watching it.
   const face = document.getElementById("face");
-  let scale = 1.45;   // base zoom: crops the PNG's black padding off-screen
+  let scale = 1;
   let leanX = 0, leanY = 0;
   let targetLeanX = 0, targetLeanY = 0;
 
