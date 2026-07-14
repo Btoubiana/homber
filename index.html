@@ -224,6 +224,11 @@
 (function () {
   "use strict";
 
+  // Declared up here on purpose: attack() fires during script evaluation and
+  // reaches startSfx(), which touches AC. A `let` further down would be in the
+  // temporal dead zone at that moment and throw, killing the whole page.
+  let AC = null;
+
   /* ============ BACKGROUND MUSIC ============ */
   // Sped up to 266%, and creeping louder the longer you stay.
   const music = document.getElementById("music");
@@ -410,7 +415,6 @@
   }, 3800);
 
   /* ============ SFX (static bursts + heartbeat, under the music) ============ */
-  let AC = null;
 
   function makeNoiseBuffer(seconds) {
     const len = AC.sampleRate * seconds;
