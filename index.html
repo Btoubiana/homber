@@ -254,14 +254,23 @@
   const hint = document.getElementById("sound-hint");
 
   const SPEED = 2.66;          // 266%
-  const START_VOL = 0.06;      // barely there
-  const END_VOL = 0.85;        // uncomfortably present
-  const RAMP_MS = 150000;      // reaches full volume over 2.5 minutes
+  const START_VOL = 0.35;      // present from the first second, but low
+  const END_VOL = 1.0;         // fills the room
+  const RAMP_MS = 90000;       // swells to full over 90 seconds
 
-  music.playbackRate = SPEED;
-  music.preservesPitch = false;         // let the pitch rise with the speed
-  music.mozPreservesPitch = false;
-  music.webkitPreservesPitch = false;
+  // playbackRate gets reset by some browsers on load/play, so reassert it
+  // every time the element reaches a new readiness state.
+  function lockRate() {
+    music.playbackRate = SPEED;
+    music.preservesPitch = false;        // let the pitch rise with the speed
+    music.mozPreservesPitch = false;
+    music.webkitPreservesPitch = false;
+  }
+  lockRate();
+  ["loadedmetadata", "canplay", "play", "playing"].forEach(function (ev) {
+    music.addEventListener(ev, lockRate);
+  });
+
   music.volume = START_VOL;
 
   let musicStarted = false;
@@ -269,46 +278,41 @@
 
   function rampVolume() {
     const t = Math.min((performance.now() - rampStart) / RAMP_MS, 1);
-    // ease-in: stays quiet for a while, then swells
-    const eased = t * t;
+    const eased = Math.pow(t, 1.5);   // gentle climb, no audible "step"
     music.volume = START_VOL + (END_VOL - START_VOL) * eased;
     if (t < 1) requestAnimationFrame(rampVolume);
   }
 
+  // The 'playing' event is the single source of truth that sound is actually
+  // coming out — play() resolving is not enough, and .paused lies right after.
+  music.addEventListener("playing", function onFirstPlay() {
+    if (musicStarted) return;
+    musicStarted = true;
+    music.removeEventListener("playing", onFirstPlay);
+    rampStart = performance.now();
+    requestAnimationFrame(rampVolume);
+    hint.style.opacity = "0";
+  });
+
   function startMusic() {
     if (musicStarted) return;
     const p = music.play();
-    if (p && p.catch) {
-      p.catch(function () { /* blocked — wait for a click */ });
-    }
-    if (!music.paused) {
-      musicStarted = true;
-      music.playbackRate = SPEED;   // reassert: some browsers reset it on play()
-      rampStart = performance.now();
-      requestAnimationFrame(rampVolume);
-      hint.style.opacity = "0";
-    }
+    if (p && p.catch) p.catch(function () { /* blocked: wait for a gesture */ });
   }
 
-  // try autoplay immediately; browsers usually block it, so also arm the click
-  music.addEventListener("playing", function () {
-    if (!musicStarted) {
-      musicStarted = true;
-      music.playbackRate = SPEED;
-      rampStart = performance.now();
-      requestAnimationFrame(rampVolume);
-      hint.style.opacity = "0";
-    }
+  // If the file itself fails to load, say so instead of failing silently.
+  music.addEventListener("error", function () {
+    hint.textContent = "audio failed to load";
+    hint.style.opacity = "1";
   });
-  music.play().catch(function () { /* needs a gesture */ });
 
-  document.addEventListener("click", function () {
-    startMusic();
-    if (!AC) startSfx();
-  });
-  document.addEventListener("keydown", function () {
-    startMusic();
-    if (!AC) startSfx();
+  // Try autoplay; browsers will usually refuse, so any gesture also starts it.
+  startMusic();
+  ["click", "keydown", "touchstart", "mousemove"].forEach(function (ev) {
+    document.addEventListener(ev, function () {
+      startMusic();
+      if (!AC) startSfx();
+    });
   });
 
   /* ============ TV STATIC ============ */
